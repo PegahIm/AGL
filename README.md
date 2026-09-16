@@ -16,7 +16,7 @@ carried out in Mathematica.
 
 ```
 .
-├── Data/           Cleaned and classified data for Experiments 1–4 (.xlsx)
+├── Data/           Data for Experiments 1–4 (.xlsx)
 ├── Figures/        All figures reported in the manuscript
 ├── Mathematica/    Model fitting, model comparison, and model recovery
 └── R/              Experiment-wise statistical analyses (.Rmd)
@@ -30,15 +30,15 @@ the Mathematica model-fitting notebooks; no other data source is required.
 ### `Mathematica/`
 
 One notebook per experiment, each implementing the Bayesian and quantum models,
-estimating their free parameters, and comparing fit via {G², BIC}:
+estimating their free parameters, and comparing fit via G², and BIC:
 
 | File | Experiment |
 | --- | --- |
-| `{AGL-Exp1-Models}.nb` | Experiment 1 |
-| `{AGL-Exp2-Models}.nb` | Experiment 2 |
-| `{AGL-Exp3-Models}.nb` | Experiment 3 |
-| `{AGL-Exp4-Models}.nb` | Experiment 4 |
-| `{AGL-Exp2-ModelRecoverySimulation}.wl` | Model recovery simulation |
+| `AGL-Exp1-Models.nb` | Experiment 1 |
+| `AGL-Exp2-Models.nb` | Experiment 2 |
+| `AGL-Exp3-Models.nb` | Experiment 3 |
+| `AGL-Exp4-Models.nb` | Experiment 4 |
+| `AGL-Exp2-ModelRecoverySimulation.wl` | Model recovery simulation |
 
 The four notebooks share a common structure and differ only in the number of
 participants and, for Experiment 1, in the set of test items. The `.wl` script
