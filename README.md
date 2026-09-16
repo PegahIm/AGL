@@ -34,11 +34,11 @@ estimating their free parameters, and comparing fit via {G², BIC}:
 
 | File | Experiment |
 | --- | --- |
-| `{Exp1-...}.nb` | Experiment 1 |
-| `{Exp2-...}.nb` | Experiment 2 |
-| `{Exp3-...}.nb` | Experiment 3 |
-| `{Exp4-...}.nb` | Experiment 4 |
-| `{model-recovery}.wl` | Model recovery simulation |
+| `{AGL-Exp1-Models}.nb` | Experiment 1 |
+| `{AGL-Exp2-Models}.nb` | Experiment 2 |
+| `{AGL-Exp3-Models}.nb` | Experiment 3 |
+| `{AGL-Exp4-Models}.nb` | Experiment 4 |
+| `{AGL-Exp2-ModelRecoverySimulation}.wl` | Model recovery simulation |
 
 The four notebooks share a common structure and differ only in the number of
 participants and, for Experiment 1, in the set of test items. The `.wl` script
@@ -55,4 +55,4 @@ All figures appearing in the manuscript.
 
 ## Contact
 
-{Pegah Imannezhad} — {pegah.imannezhad@city.ac.uk}
+Pegah Imannezhad — pegah.imannezhad@city.ac.uk
