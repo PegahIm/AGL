@@ -1,0 +1,1078 @@
+---
+title: "AGL-Exp3"
+date: "`r Sys.Date()`" 
+output:
+  word_document:
+    toc: true
+  html_document:
+    toc: true
+    theme: cosmo
+    df_print: paged
+---
+  
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(comment = "", error = TRUE)
+```
+
+# Load relevant libraries 
+
+```{r, message = FALSE}
+library(readxl)
+library(stargazer)
+library(car)
+library(reshape)
+library(plyr)
+library(ggplot2)
+library(afex)
+library(dplyr)
+library(tidyr)
+library(psych)
+library(effectsize)
+library(readr)
+library(stats)
+library(dplyr)
+library(patchwork)
+library(scales)
+```
+
+
+# Set working directory for PC
+
+To check the current working directory path 
+
+```{r}
+getwd()
+```
+
+# Load the data
+
+We have already removed the participants who answered the catch questions incorrectly.
+```{r}
+dataPs <- read_excel("AGL_Exp3.xlsx", sheet = "Behavioural")
+dataStimuli <- read_excel("AGL_Exp3.xlsx", sheet = "ChunkStrength")
+
+dataPassive <- read_excel("AGL_Exp3.xlsx", sheet = "PassiveExp3_predictions")
+
+dataIndPassive <- read_excel("AGL_Exp3.xlsx", sheet = "IndPassive")
+```
+
+
+```{r}
+names(dataPs)
+dim(dataPs)
+View(dataPs)
+```
+
+### Age
+
+```{r}
+table(dataPs$Age)
+class(dataPs$Age)
+max(dataPs$Age)  
+min(dataPs$Age)  
+mean(dataPs$Age)  
+sd(dataPs$Age)   
+```
+
+### Gender
+
+```{r}
+table(dataPs$Gender)
+class(dataPs$Gender)
+```
+
+### Reaction Times
+
+```{r}
+mean(dataPs$TrainingRT, na.rm = TRUE)
+mean(dataPs$TestingRT, na.rm = TRUE)
+```
+
+## Runing one Sample t-test to investigate mean classification accuracy 
+
+```{r}
+t_test_allPs <- t.test(dataPs$GrammaticalityAccuracy, mu = 0.50, alternative = "greater")
+t_test_allPs
+
+g_mean <- mean(dataPs$GrammaticalityAccuracy)
+g_mean
+```
+
+# Correlation
+
+```{r}
+cor.test(dataPs$count_disj, dataPs$count_conj, method = "pearson")
+```
+
+```{r}
+ct <- cor.test(dataPs$count_conj, dataPs$count_disj)         
+ct$estimate^2   # shared variance (r squared)
+ct$conf.int^2   # rough range for r squared 
+cor.test(dataPs$count_conj, dataPs$count_disj, method = "spearman")
+```
+
+## Percentile cut-offs
+
+```{r}
+# Calculate percentile thresholds (Conjunctions)
+cutoffs <- quantile(
+  dataPs$count_conj,
+  probs = c(0.30, 0.70),
+  na.rm = TRUE,
+  names = FALSE,
+  type = 7
+)
+
+lower_cutoff <- cutoffs[1]
+upper_cutoff <- cutoffs[2]
+
+print(c(
+  lower_cutoff = lower_cutoff,
+  upper_cutoff = upper_cutoff
+))
+
+print(table(dataPs$count_conj, useNA = "ifany"))
+
+dataPs$Group_conj <- dplyr::case_when(
+  dataPs$count_conj <= lower_cutoff ~ "Low agreement",
+  dataPs$count_conj >= upper_cutoff ~ "High agreement",
+  TRUE ~ "Intermediate"
+)
+
+table(dataPs$Group_conj, useNA = "ifany")
+```
+
+
+```{r}
+# Calculate percentile thresholds (Disjunctions)
+cutoffs <- quantile(
+  dataPs$count_disj,
+  probs = c(0.30, 0.70),
+  na.rm = TRUE,
+  names = FALSE,
+  type = 7
+)
+
+lower_cutoff <- cutoffs[1]
+upper_cutoff <- cutoffs[2]
+
+print(c(
+  lower_cutoff = lower_cutoff,
+  upper_cutoff = upper_cutoff
+))
+
+print(table(dataPs$count_disj, useNA = "ifany"))
+
+dataPs$Group_disj <- dplyr::case_when(
+  dataPs$count_disj <= lower_cutoff ~ "Low agreement",
+  dataPs$count_disj >= upper_cutoff ~ "High agreement",
+  TRUE ~ "Intermediate"
+)
+
+table(dataPs$Group_disj, useNA = "ifany")
+```
+
+# Plot 1
+
+```{r}
+
+n_rel <- c(Conjunction = 6, Disjunction = 10)       
+group_levels <- c("LA-Q", "Intermediate", "HA-B")
+group_cols   <- c("LA-Q" = "#4C78A8", "Intermediate" = "grey75",
+                  "HA-B" = "#D55E00")
+
+to_k <- function(x, n) if (max(x, na.rm = TRUE) <= 1) round(x * n) else round(x)
+
+scores <- dataPs %>%
+  transmute(Conjunction = to_k(count_conj, n_rel[["Conjunction"]]),
+            Disjunction = to_k(count_disj, n_rel[["Disjunction"]]))
+
+plot_data <- scores %>%
+  pivot_longer(everything(), names_to = "measure", values_to = "k") %>%
+  filter(!is.na(k)) %>%
+  mutate(measure = factor(measure, levels = names(n_rel)))
+
+cutoffs <- plot_data %>%
+  group_by(measure) %>%
+  summarise(lower = quantile(k, 0.30, names = FALSE, type = 7),
+            upper = quantile(k, 0.70, names = FALSE, type = 7),
+            .groups = "drop")
+
+assign_group <- function(k, lower, upper) {
+  factor(case_when(k <= lower ~ "LA-Q",
+                   k >= upper ~ "HA-B",
+                   TRUE       ~ "Intermediate"), levels = group_levels)
+}
+
+grid <- bind_rows(lapply(names(n_rel), function(m) tibble(measure = m, k = 0:n_rel[[m]]))) %>%
+  mutate(measure = factor(measure, levels = names(n_rel)))
+
+score_counts <- grid %>%
+  left_join(cutoffs, by = "measure") %>%
+  left_join(plot_data %>% count(measure, k, name = "n"), by = c("measure", "k")) %>%
+  mutate(n = coalesce(n, 0L),
+         group = assign_group(k, lower, upper)) %>%
+  group_by(measure) %>%
+  mutate(percent = 100 * n / sum(n),
+         bar_label = if_else(n > 0, as.character(n), "")) %>%
+  ungroup()
+
+cut_txt <- cutoffs %>%
+  mutate(txt = sprintf("%s: LA-Q \u2264 %g, HA-B \u2265 %g", measure, lower, upper)) %>%
+  pull(txt) %>% paste(collapse = "; ")
+
+group_sizes <- score_counts %>%
+  distinct(measure, k, group, n) %>%
+  group_by(group) %>%
+  summarise(n_participants = sum(n), .groups = "drop")
+
+group_labels <- c(
+  "Fallacy-prone",
+  "Intermediate",
+  "Normative"
+)
+
+group_cols <- c(
+  "LA-Q" = "#4C78A8",
+  "Intermediate"  = "#D9D9D9",
+  "HA-B"     = "#D55E00"
+)
+
+score_counts <- score_counts %>%
+  mutate(
+    group = factor(group, levels = group_levels),
+    bar_label = if_else(n > 0, as.character(n), "")
+  )
+
+classification_plot <- ggplot(
+  score_counts,
+  aes(x = k, y = percent, fill = group)
+) +
+
+geom_col(
+  width = 0.88,
+  colour = "white",
+  linewidth = 0.3
+) +
+
+  geom_text(
+    aes(label = bar_label),
+    vjust = -0.4,
+    size = 3.4,
+    colour = "black"
+  ) +
+
+  scale_fill_manual(
+    values = group_cols,
+    breaks = group_levels,
+    labels = c(
+      "LA-Q",
+      "Intermediate",
+      "HA-B"
+    ),
+    drop = FALSE,
+    name = NULL
+  ) +
+
+  scale_x_continuous(
+    breaks = function(x) {
+      seq(ceiling(min(x)), floor(max(x)), by = 1)
+    },
+    expand = expansion(add = 0.5)
+  ) +
+
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    breaks = scales::breaks_pretty(n = 5),
+    expand = expansion(mult = c(0, 0.16))
+  ) +
+
+  facet_grid(
+    . ~ measure,
+    scales = "free_x",
+    space = "free_x",
+    labeller = as_labeller(
+      c(
+        Conjunction = "(a) Conjunction score",
+        Disjunction = "(b) Disjunction score"
+      )
+    )
+  ) +
+
+  labs(
+    x = "Alignment with true constraints (number of matches)",
+    y = "Participants (%)"
+  ) +
+
+  theme_classic(base_size = 12) +
+
+  theme(
+    axis.title = element_text(
+      size = 11.5,
+      face = "bold",
+      colour = "black"
+    ),
+
+    axis.text = element_text(
+      size = 10,
+      colour = "black"
+    ),
+
+
+    axis.line.x = element_line(
+      colour = "black",
+      linewidth = 0.4
+    ),
+    axis.line.y = element_blank(),
+
+    panel.grid.major.y = element_line(
+      colour = "#E6E6E6",
+      linewidth = 0.35
+    ),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+
+    strip.text = element_text(
+      size = 11.5,
+      face = "bold",
+      colour = "black",
+      margin = margin(b = 7)
+    ),
+    strip.background = element_blank(),
+
+    panel.spacing.x = grid::unit(1.2, "lines"),
+
+    legend.position = "top",
+    legend.justification = "center",
+    legend.direction = "horizontal",
+    legend.text = element_text(size = 10),
+    legend.key.width = grid::unit(0.45, "cm"),
+    legend.key.height = grid::unit(0.35, "cm"),
+    legend.spacing.x = grid::unit(0.2, "cm"),
+
+    plot.background = element_rect(
+      fill = "white",
+      colour = NA
+    ),
+    panel.background = element_rect(
+      fill = "white",
+      colour = NA
+    ),
+    axis.title.x = element_text(
+      margin = margin(t = 9)
+    ),
+    axis.title.y = element_text(
+      margin = margin(r = 9)
+    ),
+    plot.margin = margin(
+      t = 8, r = 10, b = 8, l = 8
+    )
+  ) +
+
+  coord_cartesian(clip = "off")
+
+print(classification_plot)
+
+ggsave(
+  filename = "fig_conj_disj_classification.tiff",
+  plot = classification_plot,
+  width = 10,
+  height = 4.5,
+  units = "in",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+```
+
+# Plot 2
+
+```{r}
+complete_scores <- scores %>%
+  rename(k_conj = Conjunction, k_disj = Disjunction) %>%
+  filter(complete.cases(.))
+
+pear <- cor.test(complete_scores$k_conj, complete_scores$k_disj, method = "pearson")
+spear <- suppressWarnings(cor.test(complete_scores$k_conj, complete_scores$k_disj,
+                                   method = "spearman", exact = FALSE))
+p_txt <- function(p) if (p < .001) "< .001" else sprintf("= %.3f", p)
+correlation_text <- sprintf("r = %.2f, p %s  (Spearman \u03C1 = %.2f); n = %d",
+                            unname(pear$estimate), p_txt(pear$p.value),
+                            unname(spear$estimate), nrow(complete_scores))
+
+lc <- cutoffs$lower[cutoffs$measure == "Conjunction"]; uc <- cutoffs$upper[cutoffs$measure == "Conjunction"]
+ld <- cutoffs$lower[cutoffs$measure == "Disjunction"]; ud <- cutoffs$upper[cutoffs$measure == "Disjunction"]
+
+joint_levels <- c("LA-Q on both", "Other combinations", "HA-B on both")
+joint_cols   <- c("LA-Q on both" = "#4C78A8", "Other combinations" = "grey70",
+                  "HA-B on both" = "#D55E00")
+
+cells <- complete_scores %>%
+  mutate(g_conj = assign_group(k_conj, lc, uc),
+         g_disj = assign_group(k_disj, ld, ud),
+         joint = factor(case_when(g_conj == "LA-Q" & g_disj == "LA-Q" ~ "LA-Q on both",
+                                  g_conj == "HA-B"     & g_disj == "HA-B"     ~ "HA-B on both",
+                                  TRUE ~ "Other combinations"), levels = joint_levels)) %>%
+  count(k_conj, k_disj, joint, name = "n")
+
+correlation_plot <- ggplot() +
+  geom_smooth(data = complete_scores, aes(k_conj, k_disj), method = "lm", formula = y ~ x,
+              se = TRUE, colour = "black", fill = "grey55", alpha = 0.25, linewidth = 0.8) +
+  geom_point(data = cells, aes(k_conj, k_disj, size = n, fill = joint),
+             shape = 21, colour = "white", stroke = 0.8, alpha = 0.92) +
+  geom_text(data = filter(cells, n >= 4), aes(k_conj, k_disj, label = n, colour = joint),
+            size = 3, fontface = "bold", show.legend = FALSE) +
+  scale_size_area(max_size = 13, breaks = c(1, 4, 8), name = "Participants") +
+  scale_fill_manual(values = joint_cols, breaks = joint_levels, name = NULL) +
+  scale_colour_manual(values = c("LA-Q on both" = "white",
+                                 "Other combinations" = "grey15",
+                                 "HA-B on both" = "white")) +
+  scale_x_continuous(breaks = 0:6) + scale_y_continuous(breaks = 0:10) +
+  coord_cartesian(xlim = c(-0.4, 6.4), ylim = c(-0.6, 10.6)) +
+    guides(fill = guide_legend(order = 1, override.aes = list(size = 5)),
+         size = guide_legend(order = 2, override.aes = list(fill = "grey70", colour = "white"))) +
+  annotate("text", x = Inf, y = -Inf, hjust = 1.02, vjust = -0.8,
+           label = correlation_text, size = 3.3) +
+  labs(
+       x = "Conjunction score (relations in alignment, out of 6)",
+       y = "Disjunction score (relations in alignment, out of 10)") +
+theme_minimal(base_size = 11) +
+  theme(
+    axis.title = element_text(
+      face = "bold",
+      size = 11
+    ),
+    axis.text = element_text(
+      size = 10,
+      colour = "black"
+    ),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+
+print(correlation_plot)
+
+ggsave("fig_conj_disj_correlation.tiff", correlation_plot,
+       width = 6.2, height = 5.2, dpi = 600, compression = "lzw")
+```
+
+### Conj Group
+
+```{r}
+class(dataPs$Group_conj)
+dataPs$Group_conj.fa <- factor(dataPs$Group_conj)
+table(dataPs$Group_conj.fa)
+class(dataPs$Group_conj.fa)
+```
+
+```{r}
+mean_rts <- dataPs %>%
+  group_by(Group_conj) %>%
+  summarise(
+    Mean_TrainingRT = mean(TrainingRT, na.rm = TRUE),
+    Mean_TestingRT  = mean(TestingRT, na.rm = TRUE),
+    Mean_count_conj = mean(count_conj, na.rm = TRUE),
+    Mean_count_disj = mean(count_disj, na.rm = TRUE),
+    Count           = n()
+  )
+
+mean_rts
+```
+
+## T‑test
+
+```{r}
+t.test(
+  count_conj ~ Group_conj.fa,
+  data = subset(dataPs, Group_conj.fa != "Intermediate"),
+  var.equal = FALSE
+)
+```
+
+### Disj Group
+
+```{r}
+class(dataPs$Group_disj)
+dataPs$Group_disj.fa <- factor(dataPs$Group_disj)
+table(dataPs$Group_disj.fa)
+class(dataPs$Group_disj.fa)
+```
+
+```{r}
+mean_rts <- dataPs %>%
+  group_by(Group_disj) %>%
+  summarise(
+    Mean_TrainingRT = mean(TrainingRT, na.rm = TRUE),
+    Mean_TestingRT  = mean(TestingRT, na.rm = TRUE),
+    Mean_count_conj = mean(count_conj, na.rm = TRUE),
+    Mean_count_disj = mean(count_disj, na.rm = TRUE),
+    Count           = n()
+  )
+
+mean_rts
+```
+
+## T‑test
+
+```{r}
+t.test(
+  count_disj ~ Group_disj.fa,
+  data = subset(dataPs, Group_disj.fa != "Intermediate"),
+  var.equal = FALSE
+)
+```
+
+# ANOVA
+## Reshaping the data
+
+```{r}
+dataPs <- rename(
+  dataPs,
+  G_H  = GH,
+  G_L  = GL,
+  NG_H = NGH,
+  NG_L = NGL
+)
+names(dataPs)
+```
+
+```{r}
+df_long <- pivot_longer(dataPs, cols = c(G_H, G_L, NG_H, NG_L),names_to = "Grammaticality_ChunkStrength", values_to = "Endorsement")
+```
+
+```{r}
+df_long <- separate(df_long, Grammaticality_ChunkStrength, into = c("Grammaticality", "ChunkStrength"), sep = "_")
+```
+
+```{r}
+Grammaticality_levels <- c("G" = "Grammatical", "NG" = "Nongrammatical")
+chunk_strength_levels <- c("H" = "High", "L" = "Low")
+df_long$Grammaticality <- factor(df_long$Grammaticality, levels = names(Grammaticality_levels), labels = Grammaticality_levels)
+df_long$ChunkStrength <- factor(df_long$ChunkStrength, levels = names(chunk_strength_levels), labels = chunk_strength_levels)
+```
+
+```{r}
+str(df_long$Grammaticality)
+str(df_long$ChunkStrength)
+```
+
+### Repeated-measures 2x2 ANOVA
+
+```{r}
+result_within <- aov_car(Endorsement ~ Grammaticality * ChunkStrength + Error(id/(Grammaticality * ChunkStrength)), data = df_long)
+summary(result_within)
+```
+
+## Pairwise t-tests 
+
+```{r}
+pairwise.t.test(df_long$Endorsement, interaction(df_long$ChunkStrength, df_long$Grammaticality), p.adjust.method = "bonferroni")
+```
+
+# Compute means and standard deviations
+
+```{r}
+summary_data <- df_long %>%
+  group_by(Grammaticality, ChunkStrength) %>%
+  summarise(
+    MeanEndorsement = mean(Endorsement),
+    SD = sd(Endorsement),
+    N = n(),
+    SE = SD / sqrt(N),
+    .groups = "drop"
+  )
+
+print(summary_data)
+
+```
+
+# Plot 3
+
+```{r}
+Violin_exp3 <- ggplot(df_long,
+       aes(x = Grammaticality,
+           y = Endorsement * 100,
+           fill = ChunkStrength)) +
+
+  geom_violin(
+    alpha = 0.45,
+    colour = NA,
+    width = 0.75,
+    position = position_dodge(width = 0.7),
+    trim = FALSE
+  ) +
+
+  geom_point(
+    aes(color = ChunkStrength),
+    position = position_jitterdodge(
+      jitter.width = 0.10,
+      jitter.height = 0,
+      dodge.width = 0.7
+    ),
+    size = 1.4,
+    alpha = 0.45
+  ) +
+
+  geom_boxplot(
+    width = 0.12,
+    outlier.shape = NA,
+    colour = "black",
+    fill = "white",
+    linewidth = 0.35,
+    position = position_dodge(width = 0.7)
+  ) +
+
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.7),
+    size = 2.6,
+    colour = "black"
+  ) +
+
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    width = 0.12,
+    colour = "black",
+    linewidth = 0.6,
+    position = position_dodge(width = 0.7)
+  ) +
+
+  labs(
+    title = "(d) Experiment 3",
+    x = "Grammaticality Status",
+    y = "Endorsement rate (%)",
+    fill = "Chunk strength",
+    color = "Chunk strength"
+  ) +
+
+  scale_fill_manual(values = c("#4C78A8", "#F58518")) +
+  scale_color_manual(values = c("#4C78A8", "#F58518")) +
+
+  scale_y_continuous(
+    limits = c(0,100),
+    breaks = seq(0,100,20),
+    expand = expansion(mult = c(0,0.02))
+  ) +
+
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    strip.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 12),
+
+    axis.line = element_blank(),
+    strip.background = element_blank(),
+
+    panel.border = element_blank(),
+
+    panel.grid.major.y = element_line(colour = "grey90", linewidth = 0.3),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12),
+    legend.position = "right"
+  )
+
+print(Violin_exp3)
+
+ggsave("Violin_exp3.tiff", Violin_exp3, width = 5, height = 5, dpi = 600, compression = "lzw")
+```
+
+# Mixed-design ANOVA (Conjunction)
+## Reshaping the data
+
+```{r}
+df_long <- df_long %>%
+  filter(Group_conj.fa != "NA",
+         Group_conj.fa != "Intermediate")
+
+df_long$Group_conj.fa <- droplevels(df_long$Group_conj.fa)
+
+table(df_long$Group_conj.fa)
+```
+
+```{r}
+anyNA(df_long)
+View(df_long)
+```
+
+```{r}
+print(paste("Number of levels in Grammaticality:", length(levels(df_long$Grammaticality))))
+print(paste("Number of levels in ChunkStrength:", length(levels(df_long$ChunkStrength))))
+print(paste("Number of levels in group:", length(levels(df_long$Group_conj.fa))))
+```
+
+## Performing factorial repeated measures ANOVA
+
+```{r}
+result <- aov_car(Endorsement ~ Group_conj.fa * Grammaticality * ChunkStrength + Error(id/(Grammaticality*ChunkStrength)), data = df_long)
+summary(result)
+```
+
+## Pairwise t-tests 
+
+```{r}
+pairwise.t.test(df_long$Endorsement, interaction(df_long$ChunkStrength, df_long$Grammaticality), p.adjust.method = "bonferroni")
+```
+
+```{r}
+pairwise.t.test(df_long$Endorsement, interaction(df_long$ChunkStrength, df_long$Group_conj.fa), p.adjust.method = "bonferroni")
+```
+
+# Mixed-design ANOVA (Disjunction)
+## Reshaping the data
+
+```{r}
+df_long <- pivot_longer(dataPs, cols = c(G_H, G_L, NG_H, NG_L),names_to = "Grammaticality_ChunkStrength", values_to = "Endorsement")
+```
+
+```{r}
+df_long <- separate(df_long, Grammaticality_ChunkStrength, into = c("Grammaticality", "ChunkStrength"), sep = "_")
+```
+
+```{r}
+Grammaticality_levels <- c("G" = "Grammatical", "NG" = "Nongrammatical")
+chunk_strength_levels <- c("H" = "High", "L" = "Low")
+df_long$Grammaticality <- factor(df_long$Grammaticality, levels = names(Grammaticality_levels), labels = Grammaticality_levels)
+df_long$ChunkStrength <- factor(df_long$ChunkStrength, levels = names(chunk_strength_levels), labels = chunk_strength_levels)
+```
+
+```{r}
+str(df_long$Grammaticality)
+str(df_long$ChunkStrength)
+```
+
+```{r}
+df_long <- df_long %>%
+  filter(Group_disj.fa != "NA",
+         Group_disj.fa != "Intermediate")
+
+df_long$Group_disj.fa <- droplevels(df_long$Group_disj.fa)
+
+table(df_long$Group_disj.fa)
+```
+
+```{r}
+anyNA(df_long)
+View(df_long)
+```
+
+```{r}
+print(paste("Number of levels in Grammaticality:", length(levels(df_long$Grammaticality))))
+print(paste("Number of levels in ChunkStrength:", length(levels(df_long$ChunkStrength))))
+print(paste("Number of levels in group:", length(levels(df_long$Group_disj.fa))))
+```
+
+## Performing factorial repeated measures ANOVA
+
+```{r}
+result <- aov_car(Endorsement ~ Group_disj.fa * Grammaticality * ChunkStrength + Error(id/(Grammaticality*ChunkStrength)), data = df_long)
+summary(result)
+```
+
+## Pairwise t-tests
+
+```{r}
+pairwise.t.test(df_long$Endorsement, interaction(df_long$ChunkStrength, df_long$Grammaticality), p.adjust.method = "bonferroni")
+```
+
+# RSS
+## Min–max normalise: chunkStrength
+
+```{r}
+# Passive data
+dataPassive$chunkStrength_norm <- (
+  dataPassive$chunkStrength - min(dataPassive$chunkStrength)
+) / (max(dataPassive$chunkStrength) - min(dataPassive$chunkStrength))
+
+```
+
+## Define an RSS function
+
+```{r}
+rss <- function(observed, predicted) {
+  sum((observed - predicted)^2)
+}
+```
+
+### Compute RSS for passive learning 
+
+```{r}
+RSS_Bayesian <- rss(dataPassive$Observed, dataPassive$Bayesian_predicted)
+RSS_Quantum <- rss(dataPassive$Observed, dataPassive$Quantum_predicted)
+RSS_chunkStrength <- rss(dataPassive$Observed, dataPassive$chunkStrength_norm)
+RSS_grammaticality <- rss(dataPassive$Observed, dataPassive$grammaticality)
+```
+
+
+```{r}
+RSS_results_Passive <- data.frame(
+  Predictor = c("Bayesian", "Quantum", "Chunk Strength (norm)", "Grammaticality"),
+  RSS = c(RSS_Bayesian, RSS_Quantum, RSS_chunkStrength, RSS_grammaticality)
+)
+
+RSS_results_Passive
+```
+
+# Plot 4
+
+### Create the category variable
+
+```{r}
+# Passive
+dataPassive$category <- cut(
+  seq_len(nrow(dataPassive)),
+  breaks = c(0, 8, 16, 24, 32),
+  labels = c("GH", "GL", "NGH", "NGL")
+)
+
+```
+
+
+```{r}
+# Passive
+dataPassive <- dataPassive %>%
+  group_by(category) %>%
+  arrange(chunkStrength, .by_group = TRUE) %>%
+  mutate(item_ordered = factor(testItem, levels = testItem))
+
+```
+
+```{r}
+p1 <- ggplot(dataPassive, aes(x = item_ordered)) +
+  
+  geom_col(aes(y = Observed, fill = "Endorsement"), width = 0.6) +
+  
+  geom_point(aes(y = Bayesian_predicted, shape = "Bayesian"),
+             size = 3, colour = "blue",
+             position = position_nudge(x = -0.15)) +
+  
+  geom_point(aes(y = Quantum_predicted, shape = "Quantum"),
+             size = 3, colour = "red",
+             position = position_nudge(x = 0.15)) +
+  
+  facet_wrap(~ category, scales = "free_x") +
+  
+  scale_fill_manual(
+    name = "Data",
+    values = c("Endorsement" = "grey80")
+  ) +
+  scale_shape_manual(
+    name = "Model Predictions",
+    values = c("Bayesian" = 17, "Quantum" = 15)
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "right",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  
+  labs(
+    x = "Item (ordered by chunk strength)",
+    y = "Endorsement (probability)",
+    title = "Experiment 3 (Passive)"
+  )
+
+ggsave("endorsementA_models_faceted_Passive_Exp3.png", p1, width = 12, height = 8, dpi = 300)
+```
+
+# Individual participant performance
+## 1) Passive Group
+## Convert Yes/No to 1/0
+
+```{r}
+item_cols <- setdiff(names(dataIndPassive), "id")
+
+dataIndPassive[item_cols] <- lapply(dataIndPassive[item_cols], function(x) {
+  ifelse(x == "Yes", 1,
+         ifelse(x == "No", 0, NA))
+})
+```
+
+```{r}
+table(unlist(dataIndPassive[item_cols]), useNA = "ifany")
+```
+
+## Calculate the group-level endorsement for each item
+
+```{r}
+group_endorsement <- colMeans(dataIndPassive[item_cols], na.rm = TRUE)
+group_endorsement
+```
+
+## Leave-one-out individual-to-average correlation
+
+```{r}
+# Calculate leave-one-participant-out correlations
+individual_correlations_loo <- numeric(nrow(dataIndPassive))
+
+for (i in 1:nrow(dataIndPassive)) {
+  
+  # Participant's own responses
+  participant_responses <- as.numeric(dataIndPassive[i, item_cols])
+  
+  # Group endorsement profile excluding participant i
+  group_without_i <- colMeans(
+    dataIndPassive[-i, item_cols],
+    na.rm = TRUE
+  )
+  
+  # Only use items with valid responses
+  complete <- !is.na(participant_responses) &
+              !is.na(group_without_i)
+  
+  # Correlation between participant and the remaining group
+  individual_correlations_loo[i] <- cor(
+    participant_responses[complete],
+    group_without_i[complete],
+    method = "pearson"
+  )
+}
+
+# Add correlations to the dataset
+dataIndPassive$individual_group_r_loo <- individual_correlations_loo
+```
+
+```{r}
+summary(dataIndPassive$individual_group_r_loo)
+```
+
+# split-half analysis
+## Randomly split participants into two groups
+
+```{r}
+set.seed(1234)
+
+n_splits <- 1000
+
+split_correlations <- numeric(n_splits)
+
+for (s in 1:n_splits) {
+  
+  # Randomly assign participants to two groups
+  group_assignment <- sample(
+    c(rep(1, floor(nrow(dataIndPassive) / 2)),
+      rep(2, ceiling(nrow(dataIndPassive) / 2)))
+  )
+  
+  group1 <- dataIndPassive[group_assignment == 1, item_cols]
+  group2 <- dataIndPassive[group_assignment == 2, item_cols]
+  
+  # Average endorsement for each item in each group
+  endorsement1 <- colMeans(group1, na.rm = TRUE)
+  endorsement2 <- colMeans(group2, na.rm = TRUE)
+  
+  # Correlation between the two 32-item profiles
+  complete <- !is.na(endorsement1) & !is.na(endorsement2)
+  
+  split_correlations[s] <- cor(
+    endorsement1[complete],
+    endorsement2[complete],
+    method = "pearson"
+  )
+}
+```
+
+
+```{r}
+summary(split_correlations)
+```
+
+# Monte Carlo null simulation (a parametric bootstrap under the null, though "Monte Carlo test")
+
+```{r}
+set.seed(1234)
+
+n_participants <- nrow(dataIndPassive)
+n_sims <- 1000  # number of synthetic null datasets to generate
+
+# "True" item-level probabilities, estimated from our actual
+# full-group average (this is the null hypothesis: every
+# participant shares these same probabilities, no individual
+# differences)
+true_p <- colMeans(dataIndPassive[, item_cols], na.rm = TRUE)
+n_items <- length(true_p)
+
+# Storage for the null distributions
+null_loo_means <- numeric(n_sims)
+null_split_means <- numeric(n_sims)
+
+for (sim in 1:n_sims) {
+
+  # Generate synthetic data: each cell is one Bernoulli
+  # draw from the corresponding item's true probability. No
+  # participant-level heterogeneity is built in by construction. 
+  synth <- matrix(NA, nrow = n_participants, ncol = n_items)
+  for (j in 1:n_items) {
+    synth[, j] <- rbinom(n_participants, size = 1, prob = true_p[j])
+  }
+  colnames(synth) <- item_cols
+
+  # Leave-one-out correlation 
+  loo_r <- numeric(n_participants)
+  for (i in 1:n_participants) {
+    participant_responses <- synth[i, ]
+    group_without_i <- colMeans(synth[-i, ], na.rm = TRUE)
+    complete <- !is.na(participant_responses) & !is.na(group_without_i)
+    loo_r[i] <- suppressWarnings(cor(
+      participant_responses[complete],
+      group_without_i[complete],
+      method = "pearson"
+    ))
+  }
+  null_loo_means[sim] <- mean(loo_r, na.rm = TRUE)
+
+# Split-half correlation
+  group_assignment <- sample(
+    c(rep(1, floor(n_participants / 2)),
+      rep(2, ceiling(n_participants / 2)))
+  )
+  group1 <- synth[group_assignment == 1, ]
+  group2 <- synth[group_assignment == 2, ]
+  endorsement1 <- colMeans(group1, na.rm = TRUE)
+  endorsement2 <- colMeans(group2, na.rm = TRUE)
+  complete <- !is.na(endorsement1) & !is.na(endorsement2)
+  null_split_means[sim] <- suppressWarnings(cor(
+    endorsement1[complete],
+    endorsement2[complete],
+    method = "pearson"
+  ))
+}
+
+# Compare our observed statistics against these null distributions
+cat("Null distribution of mean LOO correlation (no real heterogeneity):\n")
+print(summary(null_loo_means))
+
+cat("\nOur observed mean LOO correlation: ", mean(dataIndPassive$individual_group_r_loo, na.rm = TRUE), "\n")
+cat("Percentile of observed value within null distribution: ",
+    mean(null_loo_means <= mean(dataIndPassive$individual_group_r_loo, na.rm = TRUE)) * 100, "%\n\n")
+
+cat("Null distribution of split-half correlation (no real heterogeneity):\n")
+print(summary(null_split_means))
+
+cat("\nOur observed mean split-half correlation: ", mean(split_correlations), "\n")
+cat("Percentile of observed value within null distribution: ",
+    mean(null_split_means <= mean(split_correlations)) * 100, "%\n")
+```
+
+# visual comparison
+
+```{r}
+par(mfrow = c(1, 2))
+hist(null_loo_means, main = "Null: LOO correlation", xlab = "mean r",
+     col = "lightgray", border = "white")
+abline(v = mean(dataIndPassive$individual_group_r_loo, na.rm = TRUE), col = "red", lwd = 2)
+
+hist(null_split_means, main = "Null: split-half correlation", xlab = "mean r",
+     col = "lightgray", border = "white")
+abline(v = mean(split_correlations), col = "red", lwd = 2)
+```
+
+
+
+
